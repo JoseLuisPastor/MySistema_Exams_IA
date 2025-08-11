@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Exámenes</title>
+    <link rel="stylesheet" href="/frontend/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- Página principal -->
+    <div id="home-page" class="page active">
+        <div class="container">
+            <h1>Generación  Automatizada De Exámenes Diagnostico Con IA</h1>
+            <p>Plataforma Educativa Para Maestros Y Alumnos</p>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="showTeacherLogin()">
+                    <i class="fas fa-chalkboard-teacher"></i>
+                    Maestro</button>
+                
+                <button class="btn btn-secondary" onclick="showStudentLogin()">
+                    Alumno
+                    <i class="fas fa-user-graduate"></i></button>
+                 
+            </div>
+        </div>
+    </div>
+
+    <!-- Registro/Login de Maestro -->
+    <div id="teacher-login" class="page">
+        <div class="container">
+            <h2>Registro de Maestro</h2>
+            <form id="teacher-form">
+                <div class="form-group">
+                    <label>Nombre:</label>
+                    <input type="text" id="teacher-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" id="teacher-email" required>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary">Registrarse</button>
+                    <button type="button" class="btn btn-secondary" onclick="showHome()">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dashboard de Maestro -->
+    <div id="teacher-dashboard" class="page">
+        <div class="container">
+            <div class="header">
+                <h2>Panel de Maestro</h2>
+                <div class="nav-tabs">
+                    <button class="tab-btn active" onclick="showTab('upload-section')">Subir PDF</button>
+                    <button class="tab-btn" onclick="showTab('exams-section')">Exámenes Generados</button>
+                    <button class="tab-btn" onclick="showTab('grades-section')">Calificaciones</button>
+                </div>
+                <button class="btn btn-logout" onclick="showHome()">Cerrar Sesión</button>
+            </div>
+
+            <!-- Sección de Subir PDF -->
+            <div id="upload-section" class="tab-content active">
+                <h3>Subir Archivo PDF</h3>
+                <div class="upload-area" id="upload-area">
+                    <p>Arrastra un archivo PDF aquí o haz clic para seleccionar</p>
+                    <input type="file" id="pdf-file" accept=".pdf" style="display:none">
+                </div>
+                <div id="exam-config" class="exam-config" style="display:none">
+                    <h4>Configuración del Examen</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Número de preguntas:</label>
+                            <input type="number" id="num-questions" value="20" min="5" max="50">
+                        </div>
+                        <div class="form-group">
+                            <label>Tiempo (minutos):</label>
+                            <select id="time-limit">
+                                <option value="40">40 minutos</option>
+                                <option value="60">60 minutos</option>
+                                <option value="custom">Personalizar</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="custom-time" style="display:none">
+                            <label>Tiempo personalizado:</label>
+                            <input type="number" id="custom-time-input" min="10" max="180">
+                            <span>minutos</span>
+                        </div>
+                        <div class="form-group">
+                            <label>Dificultad:</label>
+                            <select id="difficulty">
+                                <option value="easy">Fácil</option>
+                                <option value="medium">Medio</option>
+                                <option value="hard">Difícil</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="generateExam()">Generar Examen</button>
+                </div>
+            </div>
+
+            <!-- Sección de Exámenes -->
+            <div id="exams-section" class="tab-content">
+                <h3>Exámenes Generados</h3>
+                <div id="exams-list"></div>
+            </div>
+
+            <!-- Sección de Calificaciones -->
+            <div id="grades-section" class="tab-content">
+                <h3>Calificaciones de Estudiantes</h3>
+                <div id="grades-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generar Versiones -->
+    <div id="versions-page" class="page">
+        <div class="container">
+            <h2>Generar Versiones del Examen</h2>
+            <div class="form-group">
+                <label>Número de versiones adicionales (1-5):</label>
+                <input type="number" id="num-versions" value="1" min="1" max="5">
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="generateVersions()">Generar Versiones</button>
+                <button class="btn btn-secondary" onclick="showTeacherDashboard()">Cancelar</button>
+            </div>
+            <div id="versions-result"></div>
+        </div>
+    </div>
+
+    <!-- Login de Estudiante -->
+    <div id="student-login" class="page">
+        <div class="container">
+            <h2>Acceso de Estudiante</h2>
+            <form id="student-form">
+                <div class="form-group">
+                    <label>Nombre:</label>
+                    <input type="text" id="student-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Código del Examen:</label>
+                    <input type="text" id="exam-code" required>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary">Ingresar</button>
+                    <button type="button" class="btn btn-secondary" onclick="showHome()">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Examen para Estudiante -->
+    <div id="student-exam" class="page">
+        <div class="container">
+            <div class="exam-header">
+                <h2>Examen</h2>
+                <div class="exam-info">
+                    <span id="current-question">Pregunta 1 de 20</span>
+                    <span id="timer">40:00</span>
+                </div>
+            </div>
+            <div class="exam-content">
+                <div class="question-container">
+                    <h3 id="question-text">Pregunta aparecerá aquí</h3>
+                    <div id="options-container"></div>
+                </div>
+                <div class="exam-navigation">
+                    <button class="btn btn-secondary" id="prev-btn" onclick="previousQuestion()" disabled>Anterior</button>
+                    <button class="btn btn-primary" id="next-btn" onclick="nextQuestion()">Siguiente</button>
+                    <button class="btn btn-success" id="finish-btn" onclick="finishExam()" style="display:none">Finalizar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resultados del Estudiante -->
+    <div id="student-results" class="page">
+        <div class="container">
+            <h2>Resultados del Examen</h2>
+            <div class="results-summary">
+                <div class="score-circle">
+                    <span id="overall-score">0%</span>
+                </div>
+                <div class="score-details">
+                    <p><strong>Preguntas correctas:</strong> <span id="correct-count">0</span> de <span id="total-count">0</span></p>
+                    <p><strong>Calificación:</strong> <span id="grade-status">-</span></p>
+                </div>
+            </div>
+            <div class="topics-breakdown">
+                <h3>Desglose por Temas</h3>
+                <div id="topics-list"></div>
+            </div>
+            <button class="btn btn-primary" onclick="showHome()">Regresar al Inicio</button>
+        </div>
+    </div>
+
+    <!-- Detalles de Estudiante -->
+    <div id="student-details" class="page">
+        <div class="container">
+            <h2>Detalles del Estudiante</h2>
+            <div id="student-detail-content"></div>
+            <button class="btn btn-secondary" onclick="showTeacherDashboard()">Regresar</button>
+        </div>
+    </div>
+
+    <div id="loading" class="loading" style="display:none">
+        <div class="spinner"></div>
+        <p>Cargando...</p>
+    </div>
+
+    <script src="/frontend/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Archivos de entorno
+.env
+.env.local
+.env.production
+
+# Archivos temporales
+backend/uploads/*.pdf
+*.pyc
+__pycache__/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Dependencias locales
+node_modules/
+.venv/
+env/
