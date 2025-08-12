@@ -235,7 +235,7 @@ async function handleFile(file) {
     }
 }
 
-// Registro de maestro
+// Registro de maestro modificado para manejar login automático
 async function handleTeacherRegister(e) {
     e.preventDefault();
     const name = document.getElementById('teacher-name').value;
@@ -249,6 +249,7 @@ async function handleTeacherRegister(e) {
     showLoading();
     
     try {
+        // Intentar registro primero
         const data = await apiCall('/register-teacher', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -256,15 +257,37 @@ async function handleTeacherRegister(e) {
         });
         
         if (data.success) {
+            // Registro exitoso
             currentTeacherId = data.teacher_id;
             console.log('✅ Maestro registrado:', currentTeacherId);
             showTeacherDashboard();
         } else {
             throw new Error(data.error || 'Error en el registro');
         }
+        
     } catch (error) {
         if (error.message.includes('Email already exists')) {
-            alert('Este email ya está registrado. Si eres el maestro, tu ID debería estar guardado localmente.');
+            // Si el email ya existe, hacer login automático
+            try {
+                console.log('📧 Email ya registrado, intentando login automático...');
+                const loginData = await apiCall('/login-teacher', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name.trim(), email: email.trim() })
+                });
+                
+                if (loginData.success) {
+                    currentTeacherId = loginData.teacher_id;
+                    console.log('✅ Login automático exitoso:', currentTeacherId);
+                    showTeacherDashboard();
+                } else {
+                    alert('El email ya está registrado con un nombre diferente. Verifica tus datos.');
+                }
+                
+            } catch (loginError) {
+                alert('El email ya está registrado con un nombre diferente. Verifica tus datos.');
+                console.error('Error en login automático:', loginError);
+            }
         } else {
             alert('Error en el registro: ' + error.message);
         }
