@@ -20,7 +20,7 @@ app = Flask(__name__, static_folder='../frontend', template_folder='../frontend'
 # Configuración de CORS para producción
 if os.getenv('FLASK_ENV') == 'production':
     # En producción, especifica tu dominio de Vercel
-    CORS(app, origins=['https://my-sistema-exams-ia.vercel.app/'])
+    CORS(app, origins=['https://my-sistema-exams-ia.vercel.app'])
 else:
     # En desarrollo, permite todos los orígenes
     CORS(app)
