@@ -189,6 +189,45 @@ def register_teacher():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/login-teacher', methods=['POST'])
+def login_teacher():
+    data = request.json
+    name = data['name']
+    email = data['email']
+    
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM teachers WHERE name = %s AND email = %s",
+            (name, email)
+        )
+        teacher = cur.fetchone()
+        
+        if teacher:
+            cur.close()
+            conn.close()
+            return jsonify({
+                'teacher_id': teacher['id'], 
+                'success': True,
+                'message': 'Login exitoso'
+            })
+        else:
+            cur.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Credenciales incorrectas'
+            }), 404
+            
+    except Exception as e:
+        cur.close()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/upload-pdf', methods=['POST'])
 def upload_pdf():
     if 'file' not in request.files:
