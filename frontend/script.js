@@ -1,6 +1,6 @@
 // 🌐 CONFIGURACIÓN DE PRODUCCIÓN
 // ⚠️ IMPORTANTE: Cambia esta URL por tu dominio real de Render
-const API_BASE_URL = 'https://mi-sistema-examenes-backend.onrender.com';
+const API_BASE_URL = 'https://mysistema-exams-ia.onrender.com';
 
 // Variables globales
 let currentTeacherId = null;
