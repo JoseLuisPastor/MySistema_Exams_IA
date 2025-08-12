@@ -1,11 +1,14 @@
+
+
 {
   "version": 2,
   "name": "sistema-examenes-frontend",
-  "functions": {
-    "index.html": {
-      "maxDuration": 10
+  "builds": [
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
     }
-  },
+  ],
   "routes": [
     {
       "src": "/api/(.*)",
@@ -41,4 +44,3 @@
     }
   ]
 }
-
