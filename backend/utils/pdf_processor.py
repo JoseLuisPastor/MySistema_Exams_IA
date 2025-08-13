@@ -5,8 +5,8 @@ import json
 from dotenv import load_dotenv
 from openai import OpenAI
 import random
+import threading
 
-# Variables de entorno
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 base_url = os.getenv("OPENAI_BASE_URL")
@@ -47,62 +47,77 @@ def create_fallback_exam(preguntas_originales, num_questions):
         })
     return {"preguntas": exam_questions}
 
+def _generate_single_question(pregunta_base, difficulty, index, result_list):
+    """
+    Genera una sola pregunta y la agrega a result_list.
+    """
+    pregunta_recortada = pregunta_base[:250]  # recortar para memoria
+
+    prompt = f"""
+    Genera 1 pregunta de examen a partir de esta pregunta base,
+    manteniendo el mismo tema y dificultad {difficulty}.
+    Reglas:
+    - 4 opciones (A-D)
+    - Marca la respuesta correcta
+    - Devuelve SOLO JSON, sin texto adicional
+    Formato:
+    {{
+      "preguntas": [
+        {{
+          "numero": 1,
+          "tema": "Tema detectado",
+          "pregunta": "Texto de la pregunta",
+          "opciones": {{"A": "...", "B": "...", "C": "...", "D": "..."}},
+          "respuesta_correcta": "A"
+        }}
+      ]
+    }}
+    Pregunta base: {json.dumps({"num": index+1, "texto": pregunta_recortada}, ensure_ascii=False)}
+    """
+    try:
+        chat = client.chat.completions.create(
+            model="deepseek/deepseek-r1:free",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        generated_text = chat.choices[0].message.content
+        json_start = generated_text.find('{')
+        json_end = generated_text.rfind('}') + 1
+        if json_start != -1 and json_end != -1:
+            json_text = generated_text[json_start:json_end]
+            batch_exam = json.loads(json_text)
+            for q in batch_exam["preguntas"]:
+                q["numero"] = index + 1
+                result_list.append(q)
+    except Exception as e:
+        print(f"Error generando pregunta {index+1}: {e}")
+        fallback = create_fallback_exam([{"num": index+1, "texto": pregunta_recortada}], 1)
+        for q in fallback["preguntas"]:
+            q["numero"] = index + 1
+            result_list.append(q)
+
 def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
+    """
+    Genera examen usando hilos para evitar bloquear Render.
+    """
     pdf_text = extract_text_from_pdf(pdf_path)
     preguntas_disponibles = extraer_preguntas(pdf_text)
     if not preguntas_disponibles:
         return {"preguntas": []}
 
     num_questions = min(num_questions, len(preguntas_disponibles))
-    exam_questions = []
+    threads = []
+    result_list = []
 
     for i in range(num_questions):
-        pregunta_original = preguntas_disponibles[i]
-        # Recortar pregunta a 250 caracteres para reducir uso de memoria
-        pregunta_recortada = pregunta_original[:250]
+        t = threading.Thread(target=_generate_single_question,
+                             args=(preguntas_disponibles[i], difficulty, i, result_list))
+        threads.append(t)
+        t.start()
 
-        prompt = f"""
-        Genera 1 pregunta de examen a partir de esta pregunta base,
-        manteniendo el mismo tema y dificultad {difficulty}.
-        Reglas:
-        - 4 opciones (A-D)
-        - Marca la respuesta correcta
-        - Devuelve SOLO JSON, sin texto adicional
-        Formato:
-        {{
-          "preguntas": [
-            {{
-              "numero": 1,
-              "tema": "Tema detectado",
-              "pregunta": "Texto de la pregunta",
-              "opciones": {{"A": "...", "B": "...", "C": "...", "D": "..."}},
-              "respuesta_correcta": "A"
-            }}
-          ]
-        }}
-        Pregunta base: {json.dumps({"num": i+1, "texto": pregunta_recortada}, ensure_ascii=False)}
-        """
+    # Esperar a que todos los hilos terminen
+    for t in threads:
+        t.join()
 
-        try:
-            chat = client.chat.completions.create(
-                model="deepseek/deepseek-r1:free",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            generated_text = chat.choices[0].message.content
-            json_start = generated_text.find('{')
-            json_end = generated_text.rfind('}') + 1
-            if json_start != -1 and json_end != -1:
-                json_text = generated_text[json_start:json_end]
-                batch_exam = json.loads(json_text)
-                for q in batch_exam["preguntas"]:
-                    q["numero"] = len(exam_questions) + 1
-                    exam_questions.append(q)
-        except Exception as e:
-            print(f"Error generando pregunta {i+1}: {e}")
-            fallback = create_fallback_exam([{"num": i+1, "texto": pregunta_recortada}], 1)
-            for q in fallback["preguntas"]:
-                q["numero"] = len(exam_questions) + 1
-                exam_questions.append(q)
-
-    return {"preguntas": exam_questions}
-
+    # Ordenar por número
+    result_list.sort(key=lambda x: x["numero"])
+    return {"preguntas": result_list}
