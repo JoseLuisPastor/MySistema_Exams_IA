@@ -33,7 +33,6 @@ if not secret_key:
     print("⚠️ Usando SECRET_KEY temporal. Configura una permanente en producción.")
 
 app.secret_key = secret_key
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB máximo tamaño de PDF
 
 # Configuración
 UPLOAD_FOLDER = 'uploads'
