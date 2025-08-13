@@ -1,12 +1,12 @@
 import os
-import fitz  # PyMuPDF
+import fitz
 import re
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
 import random
 
-# Cargar variables de entorno
+# Variables de entorno
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 base_url = os.getenv("OPENAI_BASE_URL")
@@ -16,7 +16,6 @@ if not api_key or not base_url:
 client = OpenAI(api_key=api_key, base_url=base_url)
 
 def extract_text_from_pdf(pdf_path):
-    """Extraer texto completo del PDF"""
     doc = fitz.open(pdf_path)
     pdf_text = ""
     for page in doc:
@@ -25,7 +24,6 @@ def extract_text_from_pdf(pdf_path):
     return pdf_text
 
 def extraer_preguntas(texto_completo):
-    """Extraer preguntas sin incisos"""
     patron = r'(\d+\.\s.*?)(?=\n\d+\.|\Z)'
     bloques = re.findall(patron, texto_completo, re.DOTALL)
     preguntas_limpias = []
@@ -37,7 +35,6 @@ def extraer_preguntas(texto_completo):
     return preguntas_limpias
 
 def create_fallback_exam(preguntas_originales, num_questions):
-    """Crear examen básico si falla la IA"""
     selected_questions = random.sample(preguntas_originales, min(num_questions, len(preguntas_originales)))
     exam_questions = []
     for i, q in enumerate(selected_questions):
@@ -45,22 +42,12 @@ def create_fallback_exam(preguntas_originales, num_questions):
             "numero": i + 1,
             "tema": "General",
             "pregunta": q["texto"],
-            "opciones": {
-                "A": "Opción A",
-                "B": "Opción B",
-                "C": "Opción C",
-                "D": "Opción D"
-            },
+            "opciones": {"A": "Opción A", "B": "Opción B", "C": "Opción C", "D": "Opción D"},
             "respuesta_correcta": "A"
         })
     return {"preguntas": exam_questions}
 
 def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
-    """
-    Genera examen de forma segura:
-    - 1 pregunta por request a la IA
-    - Reduce el prompt al mínimo para evitar SIGKILL
-    """
     pdf_text = extract_text_from_pdf(pdf_path)
     preguntas_disponibles = extraer_preguntas(pdf_text)
     if not preguntas_disponibles:
@@ -71,9 +58,11 @@ def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
 
     for i in range(num_questions):
         pregunta_original = preguntas_disponibles[i]
+        # Recortar pregunta a 250 caracteres para reducir uso de memoria
+        pregunta_recortada = pregunta_original[:250]
 
         prompt = f"""
-        Genera 1 pregunta de examen a partir de la siguiente pregunta base,
+        Genera 1 pregunta de examen a partir de esta pregunta base,
         manteniendo el mismo tema y dificultad {difficulty}.
         Reglas:
         - 4 opciones (A-D)
@@ -91,7 +80,7 @@ def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
             }}
           ]
         }}
-        Pregunta base: {json.dumps({"num": i+1, "texto": pregunta_original}, ensure_ascii=False)}
+        Pregunta base: {json.dumps({"num": i+1, "texto": pregunta_recortada}, ensure_ascii=False)}
         """
 
         try:
@@ -110,9 +99,10 @@ def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
                     exam_questions.append(q)
         except Exception as e:
             print(f"Error generando pregunta {i+1}: {e}")
-            fallback = create_fallback_exam([{"num": i+1, "texto": pregunta_original}], 1)
+            fallback = create_fallback_exam([{"num": i+1, "texto": pregunta_recortada}], 1)
             for q in fallback["preguntas"]:
                 q["numero"] = len(exam_questions) + 1
                 exam_questions.append(q)
 
     return {"preguntas": exam_questions}
+
