@@ -1,21 +1,22 @@
 import os
-import fitz
+import fitz  # PyMuPDF
 import re
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
-import random
-import threading
 
+# Cargar variables de entorno
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 base_url = os.getenv("OPENAI_BASE_URL")
+
 if not api_key or not base_url:
-    raise ValueError("⚠ Faltan OPENAI_API_KEY o OPENAI_BASE_URL en .env")
+    raise ValueError("⚠ Faltan las variables OPENAI_API_KEY o OPENAI_BASE_URL en .env")
 
 client = OpenAI(api_key=api_key, base_url=base_url)
 
 def extract_text_from_pdf(pdf_path):
+    """Extraer texto completo del PDF"""
     doc = fitz.open(pdf_path)
     pdf_text = ""
     for page in doc:
@@ -24,100 +25,113 @@ def extract_text_from_pdf(pdf_path):
     return pdf_text
 
 def extraer_preguntas(texto_completo):
+    """Extraer preguntas sin incisos (versión exacta del usuario)"""
+    # Captura bloques desde número + punto hasta la siguiente pregunta o fin
     patron = r'(\d+\.\s.*?)(?=\n\d+\.|\Z)'
     bloques = re.findall(patron, texto_completo, re.DOTALL)
+
     preguntas_limpias = []
     for b in bloques:
+        # Quitar saltos de línea
         pregunta = " ".join(b.split())
+
+        # Eliminar incisos (A) B) C)...) y todo lo que sigue
         pregunta = re.split(r'\s[A-E]\)', pregunta)[0]
+
+        # Filtrar basura (muy corta)
         if len(pregunta) > 10:
             preguntas_limpias.append(pregunta)
+
     return preguntas_limpias
 
+def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
+    """Generar examen usando IA"""
+    # Extraer texto del PDF
+    pdf_text = extract_text_from_pdf(pdf_path)
+    
+    # Extraer preguntas originales
+    solo_preguntas = extraer_preguntas(pdf_text)
+    preguntas_json = [{"num": i+1, "texto": p} for i, p in enumerate(solo_preguntas)]
+    
+    # Ajustar número de preguntas si es necesario
+    num_questions = min(num_questions, len(preguntas_json))
+    
+    # Prompt para la IA
+    prompt = f"""
+Analiza el siguiente examen y detecta los temas principales.
+Luego, genera 1 examen con {num_questions} preguntas de dificultad {difficulty},
+manteniendo la proporción de preguntas por tema.
+
+Reglas:
+- El examen debe tener preguntas completamente diferentes, pero sobre los mismos temas.
+- Cada pregunta debe tener 4 opciones (A-D).
+- Marca la respuesta correcta con la letra.
+- Devuelve SOLO JSON, sin texto adicional.
+- Formato estricto:
+{{
+  "preguntas": [
+    {{
+      "numero": 1,
+      "tema": "Tema detectado",
+      "pregunta": "Texto de la pregunta",
+      "opciones": {{
+        "A": "...",
+        "B": "...",
+        "C": "...",
+        "D": "..."
+      }},
+      "respuesta_correcta": "A"
+    }}
+  ]
+}}
+
+Aquí está el material original:
+{json.dumps(preguntas_json[:50], ensure_ascii=False)}  # Limitar para evitar exceder tokens
+"""
+
+    try:
+        chat = client.chat.completions.create(
+            model="deepseek/deepseek-r1:free",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        generated_text = chat.choices[0].message.content
+        
+        # Limpiar respuesta para obtener solo JSON
+        json_start = generated_text.find('{')
+        json_end = generated_text.rfind('}') + 1
+        
+        if json_start != -1 and json_end != -1:
+            json_text = generated_text[json_start:json_end]
+            exam_data = json.loads(json_text)
+            return exam_data
+        else:
+            # Fallback: crear examen básico si falla la IA
+            return create_fallback_exam(preguntas_json, num_questions)
+            
+    except Exception as e:
+        print(f"Error generando examen con IA: {e}")
+        return create_fallback_exam(preguntas_json, num_questions)
+
 def create_fallback_exam(preguntas_originales, num_questions):
+    """Crear examen básico en caso de fallo de IA"""
+    import random
+    
     selected_questions = random.sample(preguntas_originales, min(num_questions, len(preguntas_originales)))
+    
     exam_questions = []
     for i, q in enumerate(selected_questions):
         exam_questions.append({
             "numero": i + 1,
             "tema": "General",
             "pregunta": q["texto"],
-            "opciones": {"A": "Opción A", "B": "Opción B", "C": "Opción C", "D": "Opción D"},
+            "opciones": {
+                "A": "Opción A",
+                "B": "Opción B", 
+                "C": "Opción C",
+                "D": "Opción D"
+            },
             "respuesta_correcta": "A"
         })
+    
     return {"preguntas": exam_questions}
-
-def _generate_single_question(pregunta_base, difficulty, index, result_list):
-    """
-    Genera una sola pregunta y la agrega a result_list.
-    """
-    pregunta_recortada = pregunta_base[:250]  # recortar para memoria
-
-    prompt = f"""
-    Genera 1 pregunta de examen a partir de esta pregunta base,
-    manteniendo el mismo tema y dificultad {difficulty}.
-    Reglas:
-    - 4 opciones (A-D)
-    - Marca la respuesta correcta
-    - Devuelve SOLO JSON, sin texto adicional
-    Formato:
-    {{
-      "preguntas": [
-        {{
-          "numero": 1,
-          "tema": "Tema detectado",
-          "pregunta": "Texto de la pregunta",
-          "opciones": {{"A": "...", "B": "...", "C": "...", "D": "..."}},
-          "respuesta_correcta": "A"
-        }}
-      ]
-    }}
-    Pregunta base: {json.dumps({"num": index+1, "texto": pregunta_recortada}, ensure_ascii=False)}
-    """
-    try:
-        chat = client.chat.completions.create(
-            model="deepseek/deepseek-r1:free",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        generated_text = chat.choices[0].message.content
-        json_start = generated_text.find('{')
-        json_end = generated_text.rfind('}') + 1
-        if json_start != -1 and json_end != -1:
-            json_text = generated_text[json_start:json_end]
-            batch_exam = json.loads(json_text)
-            for q in batch_exam["preguntas"]:
-                q["numero"] = index + 1
-                result_list.append(q)
-    except Exception as e:
-        print(f"Error generando pregunta {index+1}: {e}")
-        fallback = create_fallback_exam([{"num": index+1, "texto": pregunta_recortada}], 1)
-        for q in fallback["preguntas"]:
-            q["numero"] = index + 1
-            result_list.append(q)
-
-def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
-    """
-    Genera examen usando hilos para evitar bloquear Render.
-    """
-    pdf_text = extract_text_from_pdf(pdf_path)
-    preguntas_disponibles = extraer_preguntas(pdf_text)
-    if not preguntas_disponibles:
-        return {"preguntas": []}
-
-    num_questions = min(num_questions, len(preguntas_disponibles))
-    threads = []
-    result_list = []
-
-    for i in range(num_questions):
-        t = threading.Thread(target=_generate_single_question,
-                             args=(preguntas_disponibles[i], difficulty, i, result_list))
-        threads.append(t)
-        t.start()
-
-    # Esperar a que todos los hilos terminen
-    for t in threads:
-        t.join()
-
-    # Ordenar por número
-    result_list.sort(key=lambda x: x["numero"])
-    return {"preguntas": result_list}
