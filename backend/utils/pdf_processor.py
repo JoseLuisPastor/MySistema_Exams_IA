@@ -36,7 +36,7 @@ def extraer_preguntas(texto_completo):
             preguntas_limpias.append(pregunta)
     return preguntas_limpias
 
-def generate_exam(pdf_path, num_questions=20, difficulty='medium', batch_size=2):
+def generate_exam(pdf_path, num_questions=20, difficulty='medium', batch_size=1):
     """
     Generar examen usando IA en lotes pequeños para evitar saturar memoria.
     batch_size = cuántas preguntas enviamos a la IA en cada request
