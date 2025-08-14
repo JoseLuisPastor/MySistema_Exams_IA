@@ -2,6 +2,7 @@ import os
 import fitz  # PyMuPDF
 import re
 import json
+import gc
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -17,12 +18,8 @@ client = OpenAI(api_key=api_key, base_url=base_url)
 
 def extract_text_from_pdf(pdf_path):
     """Extraer texto completo del PDF"""
-    doc = fitz.open(pdf_path)
-    pdf_text = ""
-    for page in doc:
-        pdf_text += page.get_text()
-    doc.close()
-    return pdf_text
+    with fitz.open(pdf_path) as doc:
+        return "\n".join([page.get_text() for page in doc])
 
 def extraer_preguntas(texto_completo):
     """Extraer preguntas sin incisos"""
@@ -33,18 +30,18 @@ def extraer_preguntas(texto_completo):
         pregunta = " ".join(b.split())
         pregunta = re.split(r'\s[A-E]\)', pregunta)[0]
         if len(pregunta) > 10:
-            preguntas_limpias.append(pregunta)
+            # Limitar largo de la pregunta para no saturar tokens
+            preguntas_limpias.append(pregunta[:500])
     return preguntas_limpias
 
-def llamar_ia_para_lote(pregunta_lote, difficulty):
-    """Generar nueva pregunta usando IA a partir de una sola pregunta"""
+def llamar_ia_para_lote(preguntas_lote, difficulty):
+    """Generar nuevas preguntas usando IA a partir de un lote"""
     prompt = f"""
-Analiza la siguiente pregunta y genera una NUEVA pregunta diferente pero del mismo tema,
-con dificultad {difficulty}.
+Genera {len(preguntas_lote)} nuevas preguntas basadas en las siguientes, manteniendo el mismo tema y dificultad {difficulty}.
 
 Reglas:
 - 4 opciones (A-D).
-- Indica la respuesta correcta.
+- Indicar la respuesta correcta.
 - Devuelve SOLO JSON en este formato:
 {{
   "preguntas": [
@@ -63,43 +60,48 @@ Reglas:
   ]
 }}
 
-Pregunta de referencia:
-{json.dumps(pregunta_lote, ensure_ascii=False)}
+Preguntas de referencia:
+{json.dumps(preguntas_lote, ensure_ascii=False)}
 """
     try:
         chat = client.chat.completions.create(
             model="deepseek/deepseek-r1:free",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
         )
         generated_text = chat.choices[0].message.content
         json_start = generated_text.find('{')
         json_end = generated_text.rfind('}') + 1
         if json_start != -1 and json_end != -1:
-            json_text = generated_text[json_start:json_end]
-            return json.loads(json_text)
+            return json.loads(generated_text[json_start:json_end])
     except Exception as e:
-        print(f"⚠ Error IA en pregunta: {e}")
+        print(f"⚠ Error IA en lote: {e}")
     return {"preguntas": []}
 
 def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
-    """Generar examen procesando 1 pregunta por vez"""
+    """Generar examen procesando en lotes"""
     pdf_text = extract_text_from_pdf(pdf_path)
     solo_preguntas = extraer_preguntas(pdf_text)
 
-    preguntas_json = [{"num": i+1, "texto": p} for i, p in enumerate(solo_preguntas)]
-    num_questions = min(num_questions, len(preguntas_json))
+    # Limitar a las que pidió el usuario
+    solo_preguntas = solo_preguntas[:num_questions]
 
     examen_final = {"preguntas": []}
     numero_global = 1
 
-    # Procesar de 1 en 1
-    for i in range(num_questions):
-        lote_pregunta = [preguntas_json[i]]
-        resultado_lote = llamar_ia_para_lote(lote_pregunta, difficulty)
+    # Procesar en lotes de 3 para menos llamadas a la IA
+    lote_tamano = 3
+    for i in range(0, len(solo_preguntas), lote_tamano):
+        lote_preguntas = [{"num": idx+1, "texto": p} for idx, p in enumerate(solo_preguntas[i:i+lote_tamano])]
+        resultado_lote = llamar_ia_para_lote(lote_preguntas, difficulty)
 
         for pregunta in resultado_lote.get("preguntas", []):
             pregunta["numero"] = numero_global
             numero_global += 1
             examen_final["preguntas"].append(pregunta)
+
+        # Liberar memoria
+        del lote_preguntas, resultado_lote
+        gc.collect()
 
     return examen_final
