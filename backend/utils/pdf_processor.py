@@ -4,6 +4,7 @@ import re
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
+import math
 
 # Cargar variables de entorno
 load_dotenv()
@@ -25,49 +26,22 @@ def extract_text_from_pdf(pdf_path):
     return pdf_text
 
 def extraer_preguntas(texto_completo):
-    """Extraer preguntas sin incisos (versión exacta del usuario)"""
-    # Captura bloques desde número + punto hasta la siguiente pregunta o fin
+    """Extraer preguntas sin incisos"""
     patron = r'(\d+\.\s.*?)(?=\n\d+\.|\Z)'
     bloques = re.findall(patron, texto_completo, re.DOTALL)
-
     preguntas_limpias = []
     for b in bloques:
-        # Quitar saltos de línea
         pregunta = " ".join(b.split())
-
-        # Eliminar incisos (A) B) C)...) y todo lo que sigue
         pregunta = re.split(r'\s[A-E]\)', pregunta)[0]
-
-        # Filtrar basura (muy corta)
         if len(pregunta) > 10:
             preguntas_limpias.append(pregunta)
-
     return preguntas_limpias
 
-def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
-    """Generar examen usando IA"""
-    # Extraer texto del PDF
-    pdf_text = extract_text_from_pdf(pdf_path)
-    
-    # Extraer preguntas originales
-    solo_preguntas = extraer_preguntas(pdf_text)
-    preguntas_json = [{"num": i+1, "texto": p} for i, p in enumerate(solo_preguntas)]
-    
-    # Ajustar número de preguntas si es necesario
-    num_questions = min(num_questions, len(preguntas_json))
-    
-    # Prompt para la IA
+def llamar_ia_para_lote(preguntas_lote, difficulty):
+    """Generar preguntas para un lote usando IA"""
     prompt = f"""
-Analiza el siguiente examen y detecta los temas principales.
-Luego, genera 1 examen con {num_questions} preguntas de dificultad {difficulty},
-manteniendo la proporción de preguntas por tema.
-
-Reglas:
-- El examen debe tener preguntas completamente diferentes, pero sobre los mismos temas.
-- Cada pregunta debe tener 4 opciones (A-D).
-- Marca la respuesta correcta con la letra.
-- Devuelve SOLO JSON, sin texto adicional.
-- Formato estricto:
+Analiza las siguientes preguntas y genera un examen NUEVO con el mismo tema y dificultad {difficulty}.
+- Devuelve SOLO JSON en este formato estricto:
 {{
   "preguntas": [
     {{
@@ -84,54 +58,49 @@ Reglas:
     }}
   ]
 }}
-
-Aquí está el material original:
-{json.dumps(preguntas_json[:50], ensure_ascii=False)}  # Limitar para evitar exceder tokens
+Aquí están las preguntas de referencia:
+{json.dumps(preguntas_lote, ensure_ascii=False)}
 """
-
     try:
         chat = client.chat.completions.create(
             model="deepseek/deepseek-r1:free",
             messages=[{"role": "user", "content": prompt}]
         )
-        
         generated_text = chat.choices[0].message.content
-        
-        # Limpiar respuesta para obtener solo JSON
         json_start = generated_text.find('{')
         json_end = generated_text.rfind('}') + 1
-        
         if json_start != -1 and json_end != -1:
             json_text = generated_text[json_start:json_end]
-            exam_data = json.loads(json_text)
-            return exam_data
-        else:
-            # Fallback: crear examen básico si falla la IA
-            return create_fallback_exam(preguntas_json, num_questions)
-            
+            return json.loads(json_text)
     except Exception as e:
-        print(f"Error generando examen con IA: {e}")
-        return create_fallback_exam(preguntas_json, num_questions)
+        print(f"⚠ Error en lote: {e}")
+    return {"preguntas": []}
 
-def create_fallback_exam(preguntas_originales, num_questions):
-    """Crear examen básico en caso de fallo de IA"""
-    import random
-    
-    selected_questions = random.sample(preguntas_originales, min(num_questions, len(preguntas_originales)))
-    
-    exam_questions = []
-    for i, q in enumerate(selected_questions):
-        exam_questions.append({
-            "numero": i + 1,
-            "tema": "General",
-            "pregunta": q["texto"],
-            "opciones": {
-                "A": "Opción A",
-                "B": "Opción B", 
-                "C": "Opción C",
-                "D": "Opción D"
-            },
-            "respuesta_correcta": "A"
-        })
-    
-    return {"preguntas": exam_questions}
+def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
+    """Generar examen dividiendo en lotes para evitar timeout"""
+    pdf_text = extract_text_from_pdf(pdf_path)
+    solo_preguntas = extraer_preguntas(pdf_text)
+
+    # Convertir a lista de dicts
+    preguntas_json = [{"num": i+1, "texto": p} for i, p in enumerate(solo_preguntas)]
+
+    # Ajustar si hay menos preguntas
+    num_questions = min(num_questions, len(preguntas_json))
+
+    # Dividir en lotes de 2
+    lotes = []
+    for i in range(0, num_questions, 2):
+        lote_preguntas = preguntas_json[i:i+2]
+        lotes.append(lote_preguntas)
+
+    examen_final = {"preguntas": []}
+    numero_global = 1
+
+    for lote in lotes:
+        resultado_lote = llamar_ia_para_lote(lote, difficulty)
+        for pregunta in resultado_lote.get("preguntas", []):
+            pregunta["numero"] = numero_global
+            numero_global += 1
+            examen_final["preguntas"].append(pregunta)
+
+    return examen_final
