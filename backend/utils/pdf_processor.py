@@ -4,7 +4,6 @@ import re
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
-import math
 
 # Cargar variables de entorno
 load_dotenv()
@@ -37,11 +36,16 @@ def extraer_preguntas(texto_completo):
             preguntas_limpias.append(pregunta)
     return preguntas_limpias
 
-def llamar_ia_para_lote(preguntas_lote, difficulty):
-    """Generar preguntas para un lote usando IA"""
+def llamar_ia_para_lote(pregunta_lote, difficulty):
+    """Generar nueva pregunta usando IA a partir de una sola pregunta"""
     prompt = f"""
-Analiza las siguientes preguntas y genera un examen NUEVO con el mismo tema y dificultad {difficulty}.
-- Devuelve SOLO JSON en este formato estricto:
+Analiza la siguiente pregunta y genera una NUEVA pregunta diferente pero del mismo tema,
+con dificultad {difficulty}.
+
+Reglas:
+- 4 opciones (A-D).
+- Indica la respuesta correcta.
+- Devuelve SOLO JSON en este formato:
 {{
   "preguntas": [
     {{
@@ -58,8 +62,9 @@ Analiza las siguientes preguntas y genera un examen NUEVO con el mismo tema y di
     }}
   ]
 }}
-Aquí están las preguntas de referencia:
-{json.dumps(preguntas_lote, ensure_ascii=False)}
+
+Pregunta de referencia:
+{json.dumps(pregunta_lote, ensure_ascii=False)}
 """
     try:
         chat = client.chat.completions.create(
@@ -73,31 +78,25 @@ Aquí están las preguntas de referencia:
             json_text = generated_text[json_start:json_end]
             return json.loads(json_text)
     except Exception as e:
-        print(f"⚠ Error en lote: {e}")
+        print(f"⚠ Error IA en pregunta: {e}")
     return {"preguntas": []}
 
 def generate_exam(pdf_path, num_questions=20, difficulty='medium'):
-    """Generar examen dividiendo en lotes para evitar timeout"""
+    """Generar examen procesando 1 pregunta por vez"""
     pdf_text = extract_text_from_pdf(pdf_path)
     solo_preguntas = extraer_preguntas(pdf_text)
 
-    # Convertir a lista de dicts
     preguntas_json = [{"num": i+1, "texto": p} for i, p in enumerate(solo_preguntas)]
-
-    # Ajustar si hay menos preguntas
     num_questions = min(num_questions, len(preguntas_json))
-
-    # Dividir en lotes de 2
-    lotes = []
-    for i in range(0, num_questions, 2):
-        lote_preguntas = preguntas_json[i:i+2]
-        lotes.append(lote_preguntas)
 
     examen_final = {"preguntas": []}
     numero_global = 1
 
-    for lote in lotes:
-        resultado_lote = llamar_ia_para_lote(lote, difficulty)
+    # Procesar de 1 en 1
+    for i in range(num_questions):
+        lote_pregunta = [preguntas_json[i]]
+        resultado_lote = llamar_ia_para_lote(lote_pregunta, difficulty)
+
         for pregunta in resultado_lote.get("preguntas", []):
             pregunta["numero"] = numero_global
             numero_global += 1
